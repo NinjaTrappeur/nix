@@ -311,8 +311,21 @@ private:
     friend struct ExprOpConcatLists;
     friend struct ExprSelect;
     friend void prim_getAttr(EvalState & state, const Pos & pos, Value * * args, Value & v);
+
+    /* Profiler-related members */
+
+
 };
 
+struct ProfilerMeasurement {
+    string functionName;
+    string subFunction;
+}
+
+struct ProfilerState {
+    string funcName;
+    Array<ProfilerMeasurement> stackedMeasurements;
+}
 
 /* Return a string representing the type of the value `v'. */
 string showType(const Value & v);
