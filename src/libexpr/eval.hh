@@ -317,14 +317,48 @@ private:
 
 };
 
-struct ProfilerMeasurement {
-    string functionName;
-    string subFunction;
+/* Profiler-related operations.
+   [callGrindSpec]: TODO: add URL */
+
+typedef string FunctionName;
+typedef string FileName;
+typedef int CompressedFuncId;
+typedef int CompressedFileId;
+typedef int LineNumber;
+
+struct ProfFuncOcc {
+    CompressedFuncId funcId;
+    CompressedFileId fileId;
 }
 
-struct ProfilerState {
+struct ProfCostOcc {
+    ProfFuncOcc funcOcc;
+    int selfCost;
+    Array<ProfFuncCall> calledFunctions;
+}
+
+struct ProfFuncCall {
+    CompressedFuncId calledFunc;
+    CompressedFileId calledFile;
+    LineNumber calledFuncLineNb;
+    int cost;
+}
+
+class ProfilerState {
+
+public:
+    ProfCostOcc& getFuncOcc(FileName& fName, FunctionName& fnName);
+    void saveCost(ProfCostOcc& occCost);
+
+private:
+    Array<ProfCostOcc> stackedMeasurements;
     string funcName;
-    Array<ProfilerMeasurement> stackedMeasurements;
+    /* We index every func and file to leverage Callgrind's string compression.
+       See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
+    std::map<CompressedFuncId,FunctionName> funcMap;
+    std::map<CompressedFileId,FileName> fileMap;
+    CompressedFuncId currentFuncId;
+    CompressedFileId currentFileId;
 }
 
 /* Return a string representing the type of the value `v'. */
@@ -366,6 +400,9 @@ struct EvalSettings : Config
 
     Setting<bool> traceFunctionCalls{this, false, "trace-function-calls",
         "Emit log messages for each function entry and exit at the 'vomit' log level (-vvvv)"};
+
+    Setting<bool> profileEvaluation(this, false, "profile-function-calls",
+        "Generates a callgraph profile summary which you can interpret using kcachegrind.");
 };
 
 extern EvalSettings evalSettings;
