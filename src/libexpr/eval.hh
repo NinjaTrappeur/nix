@@ -10,7 +10,7 @@
 
 #include <map>
 #include <unordered_map>
-#include <array>
+#include <vector>
 
 
 namespace nix {
@@ -342,7 +342,7 @@ struct ProfFuncCall {
 struct ProfCostOcc {
     ProfFuncOcc funcOcc;
     int selfCost;
-    std::array<ProfFuncCall, 100> calledFunctions;
+    std::vector<ProfFuncCall> calledFunctions;
 };
 
 class ProfilerState {
@@ -352,7 +352,7 @@ public:
     void saveCost(ProfCostOcc& occCost);
 
 private:
-    std::array<ProfCostOcc, 100> stackedMeasurements;
+    std::vector<ProfCostOcc> stackedMeasurements;
     string funcName;
     /* We index every func and file to leverage Callgrind's string compression.
        See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
