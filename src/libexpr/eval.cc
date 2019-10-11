@@ -990,7 +990,10 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
                 if (vAttrs->type != tAttrs ||
                     (j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
                 {
+                    std::cout << "Going into " << name << std::endl;
+                    state.profState
                     def->eval(state, env, v);
+                    std::cout << " " << name << std::endl;
                     return;
                 }
             } else {

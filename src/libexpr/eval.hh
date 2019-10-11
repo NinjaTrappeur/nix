@@ -280,6 +280,7 @@ public:
     void printStats();
 
     void realiseContext(const PathSet & context);
+    ProfilerState profState;
 
 private:
 
@@ -354,6 +355,7 @@ public:
 private:
     std::vector<ProfCostOcc> stackedMeasurements;
     string funcName;
+    int currentNestedLevel;
     /* We index every func and file to leverage Callgrind's string compression.
        See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
     std::map<CompressedFuncId,FunctionName> funcMap;
