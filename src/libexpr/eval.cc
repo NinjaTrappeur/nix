@@ -16,6 +16,7 @@
 #include <sys/resource.h>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 
 #include <sys/resource.h>
 
@@ -349,7 +350,18 @@ EvalState::EvalState(const Strings & _searchPath, ref<Store> store)
 
 
 EvalState::~EvalState()
-{
+{ /*
+    std::cout << std::endl << "============= " << std::endl;
+    std::cout << "Maps summary: " << std::endl;
+    std::cout << "============= " << std::endl;
+    std::cout << "FuncMap:" << std::endl;
+    for(auto e: profState.funcMap) {
+        std::cout << e.first << ": " << e.second << std::endl;
+    }
+    std::cout << std::endl << "FileMap:" << std::endl;
+    for(auto e: profState.fileMap) {
+        std::cout << e.first << ": " << e.second << std::endl;
+    } */
 }
 
 
@@ -1175,6 +1187,26 @@ void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & po
     }
 
     nrFunctionCalls++;
+    /* Lo and behold.
+
+       There's no way to get the symbol name in the Symbol class.
+
+       That said, there's a ostream operator *WINK WINK*
+    */
+    if (settings.profileEvaluation && lambda.name.set()) {
+        std::ostringstream ossFunc;
+        ossFunc << lambda.name;
+        string functionName = ossFunc.str();
+        profState.registerFunction(functionName);
+
+       if (pos.file.set()) {
+           std::ostringstream ossFi;
+           ossFi << pos.file;
+           string fileName = ossFi.str();
+           profState.registerFile(fileName);
+           std::cout << "file: " << fileName << " funcName: " << functionName << " " << pos.line << ":" << pos.column << std::endl;
+       }
+    }
     if (countCalls) incrFunctionCall(&lambda);
 
     /* Evaluate the body.  This is conditional on showTrace, because
@@ -1975,5 +2007,39 @@ EvalSettings evalSettings;
 
 static GlobalConfig::Register r1(&evalSettings);
 
+/* Profiler stuff
+*****************
+*/
+
+ProfilerState::ProfilerState() {
+}
+
+CompressedFileId ProfilerState::registerFile(FileName& fName) {
+    CompressedFileId fid;
+    auto it = fileMap.find(fName);
+    if(it == fileMap.end()) {
+        fid = currentFuncId;
+        fileMap.insert({fName,currentFuncId});
+        currentFuncId++;
+    }
+    else {
+        fid = it->second;
+    }
+    return fid;
+}
+
+CompressedFuncId ProfilerState::registerFunction(FunctionName& fName) {
+    CompressedFuncId fid;
+    auto it = funcMap.find(fName);
+    if(it == funcMap.end()) {
+        fid = currentFuncId;
+        funcMap.insert({fName,currentFuncId});
+        currentFuncId++;
+    }
+    else {
+        fid = it->second;
+    }
+    return fid;
+}
 
 }

@@ -20,6 +20,55 @@ class Store;
 class EvalState;
 enum RepairFlag : bool;
 
+/* Profiler-related operations.
+   [callGrindSpec]: TODO: add URL */
+
+typedef string FunctionName;
+typedef string FileName;
+typedef int CompressedFuncId;
+typedef int CompressedFileId;
+typedef int LineNumber;
+
+struct ProfFuncOcc {
+    CompressedFuncId funcId;
+    CompressedFileId fileId;
+};
+
+struct ProfFuncCall {
+    CompressedFuncId calledFunc;
+    CompressedFileId calledFile;
+    LineNumber calledFuncLineNb;
+    int cost;
+};
+
+struct ProfCostOcc {
+    CompressedFuncId funcId;
+    CompressedFileId fileId;
+    ProfFuncOcc funcOcc;
+    int selfCost;
+    std::vector<ProfFuncCall> calledFunctions;
+};
+
+class ProfilerState {
+
+public:
+    ProfilerState();
+    CompressedFileId registerFile(FileName& fName);
+    CompressedFuncId registerFunction(FunctionName& fName);
+    ProfCostOcc& getFuncOcc(FileName& fName, FunctionName& fnName);
+    void saveCost(ProfCostOcc& occCost);
+
+public:
+    std::vector<ProfCostOcc> stackedMeasurements;
+    string funcName;
+    /* We index every func and file to leverage Callgrind's string compression.
+       See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
+    std::map<FunctionName,CompressedFuncId> funcMap;
+    std::map<FileName,CompressedFileId> fileMap;
+    CompressedFuncId currentFuncId;
+    CompressedFileId currentFileId;
+};
+
 
 typedef void (* PrimOpFun) (EvalState & state, const Pos & pos, Value * * args, Value & v);
 
@@ -314,52 +363,8 @@ private:
     friend void prim_getAttr(EvalState & state, const Pos & pos, Value * * args, Value & v);
 
     /* Profiler-related members */
+    ProfilerState profState;
 
-
-};
-
-/* Profiler-related operations.
-   [callGrindSpec]: TODO: add URL */
-
-typedef string FunctionName;
-typedef string FileName;
-typedef int CompressedFuncId;
-typedef int CompressedFileId;
-typedef int LineNumber;
-
-struct ProfFuncOcc {
-    CompressedFuncId funcId;
-    CompressedFileId fileId;
-};
-
-struct ProfFuncCall {
-    CompressedFuncId calledFunc;
-    CompressedFileId calledFile;
-    LineNumber calledFuncLineNb;
-    int cost;
-};
-
-struct ProfCostOcc {
-    ProfFuncOcc funcOcc;
-    int selfCost;
-    std::vector<ProfFuncCall> calledFunctions;
-};
-
-class ProfilerState {
-
-public:
-    ProfCostOcc& getFuncOcc(FileName& fName, FunctionName& fnName);
-    void saveCost(ProfCostOcc& occCost);
-
-private:
-    std::vector<ProfCostOcc> stackedMeasurements;
-    string funcName;
-    /* We index every func and file to leverage Callgrind's string compression.
-       See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
-    std::map<CompressedFuncId,FunctionName> funcMap;
-    std::map<CompressedFileId,FileName> fileMap;
-    CompressedFuncId currentFuncId;
-    CompressedFileId currentFileId;
 };
 
 /* Return a string representing the type of the value `v'. */
