@@ -959,7 +959,10 @@ void ExprList::eval(EvalState & state, Env & env, Value & v)
 void ExprVar::eval(EvalState & state, Env & env, Value & v)
 {
     Value * v2 = state.lookupVar(&env, *this, false);
+    state.profState.nestedLevel++;
+    state.profState.printNestedStuff(*this);
     state.forceValue(*v2, pos);
+    state.profState.nestedLevel--;
     v = *v2;
 }
 
@@ -1002,10 +1005,7 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
                 if (vAttrs->type != tAttrs ||
                     (j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
                 {
-                    std::cout << "Going into " << name << std::endl;
-                    state.profState
                     def->eval(state, env, v);
-                    std::cout << " " << name << std::endl;
                     return;
                 }
             } else {
@@ -2014,8 +2014,9 @@ static GlobalConfig::Register r1(&evalSettings);
 *****************
 */
 
-ProfilerState::ProfilerState() {
-}
+ProfilerState::ProfilerState():
+    nestedLevel(0)
+{}
 
 CompressedFileId ProfilerState::registerFile(FileName& fName) {
     CompressedFileId fid;
@@ -2043,6 +2044,22 @@ CompressedFuncId ProfilerState::registerFunction(FunctionName& fName) {
         fid = it->second;
     }
     return fid;
+}
+
+void ProfilerState::printNestedStuff(Symbol& name) {
+    string delim = "";
+    for(int i=0;i<nestedLevel;i++) {
+        delim += "=";
+    }
+    std::cout << delim << " Going into " << name << std::endl;
+}
+
+void ProfilerState::printNestedStuff(ExprVar& name) {
+    string delim = "";
+    for(int i=0;i<nestedLevel;i++) {
+        delim += "=";
+    }
+    std::cout << delim << " Going into " << name << std::endl;
 }
 
 }

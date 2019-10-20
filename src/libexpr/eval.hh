@@ -57,6 +57,8 @@ public:
     CompressedFuncId registerFunction(FunctionName& fName);
     ProfCostOcc& getFuncOcc(FileName& fName, FunctionName& fnName);
     void saveCost(ProfCostOcc& occCost);
+    void printNestedStuff(Symbol& name);
+    void printNestedStuff(ExprVar& name);
 
 public:
     std::vector<ProfCostOcc> stackedMeasurements;
@@ -67,6 +69,7 @@ public:
     std::map<FileName,CompressedFileId> fileMap;
     CompressedFuncId currentFuncId;
     CompressedFileId currentFileId;
+    int nestedLevel;
 };
 
 
