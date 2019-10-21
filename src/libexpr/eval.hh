@@ -59,6 +59,7 @@ public:
     void saveCost(ProfCostOcc& occCost);
     void printNestedStuff(Symbol& name);
     void printNestedStuff(ExprVar& name);
+    void printNestedStuff(ExprSelect& name);
 
 public:
     std::vector<ProfCostOcc> stackedMeasurements;
@@ -332,7 +333,6 @@ public:
     void printStats();
 
     void realiseContext(const PathSet & context);
-    ProfilerState profState;
 
 private:
 
@@ -379,42 +379,6 @@ typedef string FileName;
 typedef int CompressedFuncId;
 typedef int CompressedFileId;
 typedef int LineNumber;
-
-struct ProfFuncOcc {
-    CompressedFuncId funcId;
-    CompressedFileId fileId;
-};
-
-struct ProfFuncCall {
-    CompressedFuncId calledFunc;
-    CompressedFileId calledFile;
-    LineNumber calledFuncLineNb;
-    int cost;
-};
-
-struct ProfCostOcc {
-    ProfFuncOcc funcOcc;
-    int selfCost;
-    std::vector<ProfFuncCall> calledFunctions;
-};
-
-class ProfilerState {
-
-public:
-    ProfCostOcc& getFuncOcc(FileName& fName, FunctionName& fnName);
-    void saveCost(ProfCostOcc& occCost);
-
-private:
-    std::vector<ProfCostOcc> stackedMeasurements;
-    string funcName;
-    int currentNestedLevel;
-    /* We index every func and file to leverage Callgrind's string compression.
-       See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
-    std::map<CompressedFuncId,FunctionName> funcMap;
-    std::map<CompressedFileId,FileName> fileMap;
-    CompressedFuncId currentFuncId;
-    CompressedFileId currentFileId;
-};
 
 /* Return a string representing the type of the value `v'. */
 string showType(const Value & v);

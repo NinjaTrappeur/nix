@@ -1017,8 +1017,10 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
             pos2 = j->pos;
             if (state.countCalls && pos2) state.attrSelects[*pos2]++;
         }
-
+        state.profState.nestedLevel++;
+        state.profState.printNestedStuff(*this);
         state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
+        state.profState.nestedLevel--;
 
     } catch (Error & e) {
         if (pos2 && pos2->file != state.sDerivationNix)
@@ -2051,7 +2053,7 @@ void ProfilerState::printNestedStuff(Symbol& name) {
     for(int i=0;i<nestedLevel;i++) {
         delim += "=";
     }
-    std::cout << delim << " Going into " << name << std::endl;
+    std::cout << " " << delim << name << std::endl;
 }
 
 void ProfilerState::printNestedStuff(ExprVar& name) {
@@ -2059,7 +2061,15 @@ void ProfilerState::printNestedStuff(ExprVar& name) {
     for(int i=0;i<nestedLevel;i++) {
         delim += "=";
     }
-    std::cout << delim << " Going into " << name << std::endl;
+    std::cout << delim  << " " << name << " (var)" << std::endl;
+}
+
+void ProfilerState::printNestedStuff(ExprSelect& name) {
+    string delim = "";
+    for(int i=0;i<nestedLevel;i++) {
+        delim += "=";
+    }
+    std::cout << delim << " " << name << " (select)" << std::endl;
 }
 
 }
