@@ -959,10 +959,18 @@ void ExprList::eval(EvalState & state, Env & env, Value & v)
 void ExprVar::eval(EvalState & state, Env & env, Value & v)
 {
     Value * v2 = state.lookupVar(&env, *this, false);
-    state.profState.nestedLevel++;
-    state.profState.printNestedStuff(*this);
-    state.forceValue(*v2, pos);
-    state.profState.nestedLevel--;
+    if(!settings.profileEvaluation) {
+        state.forceValue(*v2, pos);
+    }
+    else {
+        std::ostringstream ossName;
+        ossName << *this;
+        string name = ossName.str();
+        ProfilerCallLevel lvl {&(this->pos), name, ProfilerCallLevel::var};
+        state.profState.jumpInValue(lvl);
+        state.forceValue(*v2, pos);
+        state.profState.createCallgraphentry(lvl);
+    }
     v = *v2;
 }
 
@@ -1017,10 +1025,18 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
             pos2 = j->pos;
             if (state.countCalls && pos2) state.attrSelects[*pos2]++;
         }
-        state.profState.nestedLevel++;
-        state.profState.printNestedStuff(*this);
-        state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
-        state.profState.nestedLevel--;
+        if (!settings.profileEvaluation) {
+            state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
+        }
+        else {
+            std::ostringstream ossName;
+            ossName << *this;
+            string name = ossName.str();
+            ProfilerCallLevel lvl {pos2 != NULL ? pos2 : &(this->pos), name, ProfilerCallLevel::select};
+            state.profState.jumpInValue(lvl);
+            state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
+            state.profState.createCallgraphentry(lvl);
+        }
 
     } catch (Error & e) {
         if (pos2 && pos2->file != state.sDerivationNix)
@@ -1192,13 +1208,15 @@ void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & po
     }
 
     nrFunctionCalls++;
-    /* Lo and behold.
+    /*
+
+       Lo and behold.
 
        There's no way to get the symbol name in the Symbol class.
 
        That said, there's a ostream operator *WINK WINK*
     */
-    if (settings.profileEvaluation && lambda.name.set()) {
+/*    if (settings.profileEvaluation && lambda.name.set()) {
         std::ostringstream ossFunc;
         ossFunc << lambda.name;
         string functionName = ossFunc.str();
@@ -1209,9 +1227,9 @@ void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & po
            ossFi << pos.file;
            string fileName = ossFi.str();
            profState.registerFile(fileName);
-           std::cout << "file: " << fileName << " funcName: " << functionName << " " << pos.line << ":" << pos.column << std::endl;
-       }
-    }
+           //std::cout << "file: " << fileName << " funcName: " << functionName << " " << pos.line << ":" << pos.column << std::endl;
+           }
+           }*/
     if (countCalls) incrFunctionCall(&lambda);
 
     /* Evaluate the body.  This is conditional on showTrace, because
@@ -2034,12 +2052,12 @@ CompressedFileId ProfilerState::registerFile(FileName& fName) {
     return fid;
 }
 
-CompressedFuncId ProfilerState::registerFunction(FunctionName& fName) {
+CompressedFuncId ProfilerState::registerFunction(CostCenterName& fName) {
     CompressedFuncId fid;
-    auto it = funcMap.find(fName);
-    if(it == funcMap.end()) {
+    auto it = costMap.find(fName);
+    if(it == costMap.end()) {
         fid = currentFuncId;
-        funcMap.insert({fName,currentFuncId});
+        costMap.insert({fName,currentFuncId});
         currentFuncId++;
     }
     else {
@@ -2048,28 +2066,36 @@ CompressedFuncId ProfilerState::registerFunction(FunctionName& fName) {
     return fid;
 }
 
-void ProfilerState::printNestedStuff(Symbol& name) {
-    string delim = "";
-    for(int i=0;i<nestedLevel;i++) {
-        delim += "=";
+void ProfilerState::jumpInValue(ProfilerCallLevel& call) {
+    string delim="";
+    string opStr="";
+    std::ostringstream srcPos;
+    callGraphStack.push(call);
+    int stackSize = callGraphStack.size();
+    for(int i=0;i<stackSize;i++) {
+        delim+="=";
     }
-    std::cout << " " << delim << name << std::endl;
+    switch (call.callType) {
+    case ProfilerCallLevel::select:
+        opStr="select";
+        break;
+    case ProfilerCallLevel::var:
+        opStr="var";
+        break;
+    }
+    if(call.pos->file.set()) {
+        std::ostringstream ossFi;
+        ossFi << call.pos->file;
+        string fileName = ossFi.str();
+        srcPos << fileName << " " << call.pos->line << ":" << call.pos->column;
+    } else {
+        srcPos << "NOT DEFINED";
+    }
+    std::cout << delim << " " << opStr << "::" << call.name << " " << srcPos.str() << std::endl;
 }
 
-void ProfilerState::printNestedStuff(ExprVar& name) {
-    string delim = "";
-    for(int i=0;i<nestedLevel;i++) {
-        delim += "=";
-    }
-    std::cout << delim  << " " << name << " (var)" << std::endl;
-}
-
-void ProfilerState::printNestedStuff(ExprSelect& name) {
-    string delim = "";
-    for(int i=0;i<nestedLevel;i++) {
-        delim += "=";
-    }
-    std::cout << delim << " " << name << " (select)" << std::endl;
+void ProfilerState::createCallgraphentry(ProfilerCallLevel& call) {
+    callGraphStack.pop();
 }
 
 }

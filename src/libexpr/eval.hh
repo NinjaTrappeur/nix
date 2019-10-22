@@ -10,7 +10,7 @@
 
 #include <map>
 #include <unordered_map>
-#include <vector>
+#include <stack>
 
 
 namespace nix {
@@ -23,7 +23,7 @@ enum RepairFlag : bool;
 /* Profiler-related operations.
    [callGrindSpec]: TODO: add URL */
 
-typedef string FunctionName;
+typedef string CostCenterName;
 typedef string FileName;
 typedef int CompressedFuncId;
 typedef int CompressedFileId;
@@ -46,7 +46,13 @@ struct ProfCostOcc {
     CompressedFileId fileId;
     ProfFuncOcc funcOcc;
     int selfCost;
-    std::vector<ProfFuncCall> calledFunctions;
+};
+
+
+struct ProfilerCallLevel {
+    Pos* pos;
+    CostCenterName name;
+    enum { select=0, var} callType;
 };
 
 class ProfilerState {
@@ -54,23 +60,21 @@ class ProfilerState {
 public:
     ProfilerState();
     CompressedFileId registerFile(FileName& fName);
-    CompressedFuncId registerFunction(FunctionName& fName);
-    ProfCostOcc& getFuncOcc(FileName& fName, FunctionName& fnName);
+    CompressedFuncId registerFunction(CostCenterName& fName);
+    ProfCostOcc& getFuncOcc(FileName& fName, CostCenterName& fnName);
     void saveCost(ProfCostOcc& occCost);
-    void printNestedStuff(Symbol& name);
-    void printNestedStuff(ExprVar& name);
-    void printNestedStuff(ExprSelect& name);
+    void jumpInValue(ProfilerCallLevel& call);
+    void createCallgraphentry(ProfilerCallLevel& call);
+    int nestedLevel;
 
-public:
-    std::vector<ProfCostOcc> stackedMeasurements;
-    string funcName;
+private:
     /* We index every func and file to leverage Callgrind's string compression.
        See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
-    std::map<FunctionName,CompressedFuncId> funcMap;
+    std::map<CostCenterName,CompressedFuncId> costMap;
     std::map<FileName,CompressedFileId> fileMap;
     CompressedFuncId currentFuncId;
     CompressedFileId currentFileId;
-    int nestedLevel;
+    std::stack<ProfilerCallLevel> callGraphStack;
 };
 
 
@@ -371,14 +375,6 @@ private:
 
 };
 
-/* Profiler-related operations.
-   [callGrindSpec]: TODO: add URL */
-
-typedef string FunctionName;
-typedef string FileName;
-typedef int CompressedFuncId;
-typedef int CompressedFileId;
-typedef int LineNumber;
 
 /* Return a string representing the type of the value `v'. */
 string showType(const Value & v);
