@@ -11,12 +11,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
-#include <unistd.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <memory>
 #include <sstream>
+#include <sys/resource.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <sys/resource.h>
 
@@ -966,10 +967,9 @@ void ExprVar::eval(EvalState & state, Env & env, Value & v)
         std::ostringstream ossName;
         ossName << *this;
         string name = ossName.str();
-        ProfilerCallLevel lvl {&(this->pos), name, ProfilerCallLevel::var};
-        state.profState.jumpInValue(lvl);
+        state.profState.jumpInValue(&(this->pos), name, ProfilerCallType::var);
         state.forceValue(*v2, pos);
-        state.profState.createCallgraphentry(lvl);
+        state.profState.jumpOutValue();
     }
     v = *v2;
 }
@@ -1032,10 +1032,10 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
             std::ostringstream ossName;
             ossName << *this;
             string name = ossName.str();
-            ProfilerCallLevel lvl {pos2 != NULL ? pos2 : &(this->pos), name, ProfilerCallLevel::select};
-            state.profState.jumpInValue(lvl);
-            state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
-            state.profState.createCallgraphentry(lvl);
+            Pos* fpos = pos2 != NULL ? pos2 : &(this->pos);
+            state.profState.jumpInValue(fpos, name, ProfilerCallType::select);
+            state.forceValue(*vAttrs, *fpos);
+            state.profState.jumpOutValue();
         }
 
     } catch (Error & e) {
@@ -1809,6 +1809,8 @@ void EvalState::printStats()
     uint64_t bLists = nrListElems * sizeof(Value *);
     uint64_t bValues = nrValues * sizeof(Value);
     uint64_t bAttrsets = nrAttrsets * sizeof(Bindings) + nrAttrsInAttrsets * sizeof(Attr);
+    if(settings.profileEvaluation)
+        profState.printCallGraph();
 
 #if HAVE_BOEHMGC
     GC_word heapSize, totalBytes;
@@ -2035,16 +2037,19 @@ static GlobalConfig::Register r1(&evalSettings);
 */
 
 ProfilerState::ProfilerState():
-    nestedLevel(0)
-{}
+    profilerTreeRoot(std::nullopt),
+    lastProfilerCall(std::nullopt)
+{
+
+}
 
 CompressedFileId ProfilerState::registerFile(FileName& fName) {
     CompressedFileId fid;
     auto it = fileMap.find(fName);
     if(it == fileMap.end()) {
-        fid = currentFuncId;
-        fileMap.insert({fName,currentFuncId});
-        currentFuncId++;
+        fid = currentFileId;
+        fileMap.insert({fName,currentCostCenterId});
+        currentFileId++;
     }
     else {
         fid = it->second;
@@ -2052,13 +2057,13 @@ CompressedFileId ProfilerState::registerFile(FileName& fName) {
     return fid;
 }
 
-CompressedFuncId ProfilerState::registerFunction(CostCenterName& fName) {
-    CompressedFuncId fid;
+CompressedCostCenterId ProfilerState::registerCostCenter(CostCenterName& fName) {
+    CompressedCostCenterId fid;
     auto it = costMap.find(fName);
     if(it == costMap.end()) {
-        fid = currentFuncId;
-        costMap.insert({fName,currentFuncId});
-        currentFuncId++;
+        fid = currentCostCenterId;
+        costMap.insert({fName,currentCostCenterId});
+        currentCostCenterId++;
     }
     else {
         fid = it->second;
@@ -2066,36 +2071,139 @@ CompressedFuncId ProfilerState::registerFunction(CostCenterName& fName) {
     return fid;
 }
 
-void ProfilerState::jumpInValue(ProfilerCallLevel& call) {
+void ProfilerState::jumpInValue(Pos* pos, CostCenterName name, ProfilerCallType type) {
+    std::shared_ptr<ProfilerCallLevel> call =
+        std::make_shared<ProfilerCallLevel>
+            (ProfilerCallLevel{
+                lastProfilerCall,
+                std::forward_list<ProfilerCallLevel*>(),
+                pos, name, type, false});
     string delim="";
     string opStr="";
     std::ostringstream srcPos;
+
+    if (lastProfilerCall) {
+        lastProfilerCall->children.push_front(call);
+    } else {
+        std::cout << "Redifining tree root " << std::endl;
+        profilerTreeRoot = call;
+    }
     callGraphStack.push(call);
+    lastProfilerCall = call;
+
+    // Printing stuff
     int stackSize = callGraphStack.size();
     for(int i=0;i<stackSize;i++) {
         delim+="=";
     }
-    switch (call.callType) {
-    case ProfilerCallLevel::select:
+    switch (type) {
+    case ProfilerCallType::select:
         opStr="select";
         break;
-    case ProfilerCallLevel::var:
+    case ProfilerCallType::var:
         opStr="var";
         break;
     }
-    if(call.pos->file.set()) {
+    if(pos->file.set()) {
         std::ostringstream ossFi;
-        ossFi << call.pos->file;
+        ossFi << pos->file;
         string fileName = ossFi.str();
-        srcPos << fileName << " " << call.pos->line << ":" << call.pos->column;
+        srcPos << fileName << " " << pos->line << ":" << pos->column;
     } else {
         srcPos << "NOT DEFINED";
     }
-    std::cout << delim << " " << opStr << "::" << call.name << " " << srcPos.str() << std::endl;
+    //std::cout << delim << " " << opStr << "::" << name << " " << srcPos.str() << std::endl;
+
 }
 
-void ProfilerState::createCallgraphentry(ProfilerCallLevel& call) {
+void ProfilerState::jumpOutValue() {
+    if (!callGraphStack.empty())
+        lastProfilerCall = callGraphStack.top().get().parent.get();
+    else {
+        std::cout << "jumpOutValue, CONDITION CHELOUE" << std::endl;
+    }
     callGraphStack.pop();
 }
 
+void ProfilerState::printCallGraph() {
+    std::stack<ProfilerCallLevel*> nodesToProcess;
+    std::ostringstream ossFi;
+    LineNumber line;
+    nodesToProcess.push(profilerTreeRoot);
+
+    while(!nodesToProcess.empty()) {
+        // %%%%%%%%%%%%%%%%%%%%%%%%%
+        // Get Node struct
+        // %%%%%%%%%%%%%%%%%%%%%%%%%
+        auto currentNode = nodesToProcess.top();
+        if (!currentNode->visited) {
+            nodesToProcess.pop();
+            currentNode->visited = true;
+            std::cout << "Current stack size: " << nodesToProcess.size() << std::endl;
+            string fileName;
+            if(currentNode->pos->file.set()) {
+                ossFi << currentNode->pos->file;
+                fileName = ossFi.str();
+            } else {
+                fileName = "NOT DEFINED";
+            }
+            FileName fname = fileName;
+            CostCenterName ccname = currentNode->name;
+            line = currentNode->pos->line;
+            PosCost entryPos = {line, 666};
+            CallGraphCostEntry costEntry = { fname, ccname, std::forward_list<CallGraphCall>(), entryPos };
+            auto children = currentNode->children;
+            // %%%%%%%%%%%%%%%%%%%%%%%%%
+            // Create Children Structs
+            // %%%%%%%%%%%%%%%%%%%%%%%%%
+            PosCost posCost;
+            CallGraphCall call;
+            for (auto it = children.begin(); it != children.end(); it++) {
+                nodesToProcess.push(*it);
+                if((*it)->pos->file.set()) {
+                    ossFi << (*it)->pos->file;
+                    fileName = ossFi.str();
+                } else {
+                    fileName = "NOT DEFINED";
+                }
+                line = (*it)->pos->line;
+                posCost = { line, 666 };
+                /* fid = registerFile(fileName);
+                ccid = registerCostCenter(currentNode->name); */
+                call = { fileName, (*it)->name, posCost };
+                costEntry.calls.push_front(call);
+            }
+            costEntries.push_front(costEntry);
+        }
+
+    }
+    renderCostEntries(costEntries);
+}
+
+void ProfilerState::renderCostEntries(std::forward_list<CallGraphCostEntry> costEntries){
+    for (auto i = costEntries.begin(); i != costEntries.end(); i++) {
+        std::cout << "fl=" << i->fileName << std::endl;
+        std::cout << "fn=" << i->costCenter << std::endl;
+        std::cout << i->pos.line << " " << i->pos.cost << std::endl;
+        auto calls = i->calls;
+        for (auto j = calls.begin(); j != calls.end(); j++) {
+            std::cout << "cfi=" << j->fileName << std::endl;
+            std::cout << "cfn=" << j->costCenter << std::endl;
+            std::cout << "calls=" << "1 " << j->pos.cost << std::endl;
+            std::cout << "1 " << i->pos.line << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+/*fl=(1) file1.c
+fn=(1) main
+16 20
+cfn=(2) func1
+calls=1 50
+16 400
+cfi=(2) file2.c
+cfn=(3) func2
+calls=3 20
+16 400*/
+}
 }

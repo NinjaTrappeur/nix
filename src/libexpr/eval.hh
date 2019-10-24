@@ -8,9 +8,12 @@
 #include "config.hh"
 #include "function-trace.hh"
 
+#include <forward_list>
 #include <map>
-#include <unordered_map>
+#include <optional>
+#include <optional>
 #include <stack>
+#include <unordered_map>
 
 
 namespace nix {
@@ -25,34 +28,43 @@ enum RepairFlag : bool;
 
 typedef string CostCenterName;
 typedef string FileName;
-typedef int CompressedFuncId;
+typedef int CompressedCostCenterId;
 typedef int CompressedFileId;
 typedef int LineNumber;
+typedef int BullshitCost;
 
-struct ProfFuncOcc {
-    CompressedFuncId funcId;
-    CompressedFileId fileId;
+struct PosCost {
+    LineNumber line;
+    BullshitCost cost;
 };
 
-struct ProfFuncCall {
-    CompressedFuncId calledFunc;
-    CompressedFileId calledFile;
-    LineNumber calledFuncLineNb;
-    int cost;
+struct CallCost {
+    LineNumber line;
+    int nbCalls;
 };
 
-struct ProfCostOcc {
-    CompressedFuncId funcId;
-    CompressedFileId fileId;
-    ProfFuncOcc funcOcc;
-    int selfCost;
+struct CallGraphCall {
+    FileName fileName;
+    CostCenterName costCenter;
+    PosCost pos;
 };
 
+struct CallGraphCostEntry {
+    FileName fileName;
+    CostCenterName costCenter;
+    std::forward_list<CallGraphCall> calls;
+    PosCost pos;
+};
+
+enum ProfilerCallType { select=0, var};
 
 struct ProfilerCallLevel {
+    std::shared_ptr<ProfilerCallLevel> parent;
+    std::forward_list<std::shared_ptr<ProfilerCallLevel>> children;
     Pos* pos;
     CostCenterName name;
-    enum { select=0, var} callType;
+    ProfilerCallType type;
+    bool visited;
 };
 
 class ProfilerState {
@@ -60,21 +72,23 @@ class ProfilerState {
 public:
     ProfilerState();
     CompressedFileId registerFile(FileName& fName);
-    CompressedFuncId registerFunction(CostCenterName& fName);
-    ProfCostOcc& getFuncOcc(FileName& fName, CostCenterName& fnName);
-    void saveCost(ProfCostOcc& occCost);
-    void jumpInValue(ProfilerCallLevel& call);
-    void createCallgraphentry(ProfilerCallLevel& call);
-    int nestedLevel;
+    CompressedCostCenterId registerCostCenter(CostCenterName& fName);
+    void jumpInValue(Pos* pos, CostCenterName name, ProfilerCallType type);
+    void jumpOutValue();
+    void printCallGraph();
 
 private:
     /* We index every func and file to leverage Callgrind's string compression.
-       See section "3.1.6.�Subposition Compression" section from [callgrindSpec]. */
-    std::map<CostCenterName,CompressedFuncId> costMap;
+       See section "3.1.6.Subposition Compression" section from [callgrindSpec]. */
+    std::map<CostCenterName,CompressedCostCenterId> costMap;
     std::map<FileName,CompressedFileId> fileMap;
-    CompressedFuncId currentFuncId;
+    CompressedCostCenterId currentCostCenterId;
     CompressedFileId currentFileId;
-    std::stack<ProfilerCallLevel> callGraphStack;
+    std::stack<std::shared_ptr<ProfilerCallLevel>> callGraphStack;
+    std::optional<std::shared_ptr<ProfilerCallLevel>> lastProfilerCall;
+    std::optional<std::shared_ptr<ProfilerCallLevel>> profilerTreeRoot;
+    std::forward_list<CallGraphCostEntry> costEntries;
+    void renderCostEntries(std::forward_list<CallGraphCostEntry> costEntries);
 };
 
 
